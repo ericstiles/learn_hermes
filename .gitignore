@@ -1,0 +1,13 @@
+# Model weights — large binaries, downloaded not versioned
+models/*.gguf
+models/*.bin
+models/*.safetensors
+
+# Tooling caches
+.ruff_cache/
+__pycache__/
+*.pyc
+
+# OS / editor cruft
+.DS_Store
+*.swp

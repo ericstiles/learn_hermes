@@ -1,0 +1,30 @@
+services:
+  llamacpp-server:
+    image: ghcr.io/ggml-org/llama.cpp:server
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - "./models:/models:ro"
+    command:
+      - "--models-dir"
+      - "/models"
+      - "--port"
+      - "8080"
+      - "--host"
+      - "0.0.0.0"
+
+  open-webui:
+    image: ghcr.io/open-webui/open-webui:main
+    restart: unless-stopped
+    ports:
+      - "3000:8080"
+    volumes:
+      - "open-webui:/app/backend/data"
+    environment:
+      - OLLAMA_BASE_URL=
+    depends_on:
+      - llamacpp-server
+
+volumes:
+  open-webui:
