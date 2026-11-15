@@ -1,0 +1,7 @@
+{
+  "database": "dolt",
+  "backend": "dolt",
+  "dolt_mode": "embedded",
+  "dolt_database": "learn_hermes",
+  "project_id": "09e74095-68ad-40df-8018-c156d00cee9a"
+}
