@@ -10,7 +10,7 @@ The data file path is read from the TODO_FILE env var (see core.TODO_ENV).
 import argparse
 import sys
 
-from .core import add_item, load_todos
+from .core import add_item, load_todos, mark_done
 
 
 def cmd_add(args):
@@ -33,6 +33,21 @@ def cmd_list(args):
     return 0
 
 
+def cmd_done(args):
+    """Handle `todo done <id>` -> mark an item complete."""
+    try:
+        item_id = int(args.id)
+    except ValueError:
+        print(f"error: invalid id {args.id!r}", file=sys.stderr)
+        return 1
+    item = mark_done(item_id)
+    if item is None:
+        print(f"error: no item with id {item_id}", file=sys.stderr)
+        return 1
+    print(f"done {item['id']}: {item['text']}")
+    return 0
+
+
 def build_parser():
     parser = argparse.ArgumentParser(
         prog="todo",
@@ -46,6 +61,10 @@ def build_parser():
 
     p_list = sub.add_parser("list", help="list all items")
     p_list.set_defaults(func=cmd_list)
+
+    p_done = sub.add_parser("done", help="mark an item complete")
+    p_done.add_argument("id", help="id of the item to mark done")
+    p_done.set_defaults(func=cmd_done)
 
     return parser
 

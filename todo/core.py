@@ -80,3 +80,19 @@ def add_item(text, path=None):
     items.append(item)
     save_todos(items, path)
     return item
+
+
+def mark_done(item_id, path=None):
+    """Mark the item with ``item_id`` complete and persist.
+
+    Returns the updated item dict, or ``None`` when no item has that id.
+    (Unknown-id *error reporting* is owned by the validation issue; the core
+    contract is simply "update if present, else no-op".)
+    """
+    items = load_todos(path)
+    for item in items:
+        if item["id"] == item_id:
+            item["done"] = True
+            save_todos(items, path)
+            return item
+    return None

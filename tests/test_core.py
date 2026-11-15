@@ -103,3 +103,48 @@ def test_missing_command_errors(tmp_path, monkeypatch):
     monkeypatch.setenv(core.TODO_ENV, str(tmp_path / "todos.json"))
     with pytest.raises(SystemExit):
         cli.main([])
+
+
+# --- core: mark done -------------------------------------------------------
+
+def test_mark_done_sets_flag_and_persists(tmp_path):
+    f = tmp_path / "todos.json"
+    core.add_item("buy milk", path=f)
+    core.add_item("walk dog", path=f)
+    updated = core.mark_done(1, path=f)
+    assert updated == {"id": 1, "text": "buy milk", "done": True}
+    # Persisted to disk, and only the targeted item changed.
+    loaded = core.load_todos(f)
+    assert [i["id"] for i in loaded] == [1, 2]
+    assert loaded[0]["done"] is True
+    assert loaded[1]["done"] is False
+
+
+def test_mark_done_unknown_id_returns_none(tmp_path):
+    f = tmp_path / "todos.json"
+    core.add_item("only one", path=f)
+    assert core.mark_done(99, path=f) is None
+
+
+# --- cli: done -------------------------------------------------------------
+
+def test_main_done_then_list_marks_done(tmp_path, monkeypatch, capsys):
+    f = tmp_path / "todos.json"
+    core.add_item("todo", path=f)
+    core.add_item("second", path=f)
+    monkeypatch.setenv(core.TODO_ENV, str(f))
+    assert cli.main(["done", "1"]) == 0
+    assert cli.main(["list"]) == 0
+    out = capsys.readouterr().out
+    assert "1 [x] todo" in out
+    assert "2 [ ] second" in out
+
+
+def test_main_done_unknown_id_does_not_crash(tmp_path, monkeypatch, capsys):
+    # Unknown-id error handling is owned by the validation issue (7oa); here we
+    # only assert the command degrades without raising.
+    f = tmp_path / "todos.json"
+    core.add_item("todo", path=f)
+    monkeypatch.setenv(core.TODO_ENV, str(f))
+    rc = cli.main(["done", "99"])
+    assert rc != 0  # reported, but not a crash
