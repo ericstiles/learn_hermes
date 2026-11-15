@@ -1,0 +1,20 @@
+[project]
+name = "todo"
+version = "0.1.0"
+description = "A tiny CLI todo list — the tracer bullet for the learn_hermes stack."
+requires-python = ">=3.10"
+dependencies = []
+
+[project.scripts]
+todo = "todo.cli:main"
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["todo"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--cov=todo --cov-report=term-missing"
