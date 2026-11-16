@@ -1,0 +1,9 @@
+Query: x
+The prompt says print NO_READY_WORK when empty and RUN_BLOCKED when stuck.
+PR https://github.com/o/r/pull/14
+
+Resume this session with:
+  hermes --resume X
+
+Session:        X
+Messages:       9 (1 user, 8 tool calls)

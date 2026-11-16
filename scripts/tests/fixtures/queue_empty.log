@@ -1,0 +1,9 @@
+Query: x
+bd ready returns empty
+NO_READY_WORK
+
+Resume this session with:
+  hermes --resume X
+
+Session:        X
+Messages:       9 (1 user, 8 tool calls)

@@ -1,0 +1,11 @@
+Query: x
+  assert status == 404
+  FAILED tests/test_web.py::t HTTP 404 expected
+⚠ Auxiliary title generation failed: Request timed out.
+PR https://github.com/o/r/pull/13
+
+Resume this session with:
+  hermes --resume X
+
+Session:        X
+Messages:       9 (1 user, 8 tool calls)

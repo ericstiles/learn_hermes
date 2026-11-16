@@ -11,5 +11,13 @@
         "matcher": ""
       }
     ]
+  },
+  "permissions": {
+    "allow": [
+      "Bash(scripts/hermes-status.sh:*)",
+      "Bash(scripts/hermes-supervise.sh:*)",
+      "Bash(scripts/hermes-launch.sh:*)",
+      "Bash(scripts/tests/run_tests.sh:*)"
+    ]
   }
 }
