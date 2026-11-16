@@ -1,0 +1,10 @@
+Query: x
+  ┊ 💻 $ bd update learn_hermes-abc --claim
+The issue is blocked.
+RUN_BLOCKED
+
+Resume this session with:
+  hermes --resume X
+
+Session:        X
+Messages:       9 (1 user, 8 tool calls)

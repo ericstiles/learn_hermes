@@ -1,0 +1,9 @@
+Query: x
+git push failed: Bad credentials
+HTTP 401
+
+Resume this session with:
+  hermes --resume X
+
+Session:        X
+Messages:       9 (1 user, 8 tool calls)

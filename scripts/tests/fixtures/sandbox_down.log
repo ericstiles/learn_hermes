@@ -1,0 +1,8 @@
+Query: x
+Cannot connect to the Docker daemon at unix:///var/run/docker.sock
+
+Resume this session with:
+  hermes --resume X
+
+Session:        X
+Messages:       9 (1 user, 8 tool calls)

@@ -1,0 +1,10 @@
+Query: x
+  ┊ 💻 $ bd dolt push
+ ! [rejected]  main -> main (non-fast-forward)
+Updates were rejected
+
+Resume this session with:
+  hermes --resume X
+
+Session:        X
+Messages:       9 (1 user, 8 tool calls)

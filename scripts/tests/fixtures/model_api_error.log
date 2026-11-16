@@ -1,0 +1,6 @@
+Query: x
+⚠️  API call failed (attempt 1/3): NotFoundError [HTTP 404]
+⚠️  API call failed (attempt 2/3): NotFoundError [HTTP 404]
+Resume this session with:
+
+Messages:       1 (1 user, 0 tool calls)

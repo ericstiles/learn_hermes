@@ -75,3 +75,21 @@ _Add a brief overview of your project architecture_
 ## Conventions & Patterns
 
 _Add your project-specific conventions here_
+
+## Supervising the Hermes agent (Claude Code only; Hermes does not read this)
+
+- To check Hermes status (latest run, PRs, beads state, active runs) ALWAYS run
+  `scripts/hermes-status.sh` (add `--tests` to also test `origin/main` in a
+  throwaway worktree). Do not hand-assemble git/gh/bd/log commands for this.
+- To diagnose a failed or finished run run `scripts/hermes-supervise.sh`. It
+  prints `CLASS=`, `ACTION=` and `NEXT=`. Follow `ACTION=AUTO_RELAUNCH` by
+  running the `NEXT=` command without asking. Stop and ask the user only for
+  `ASK_HUMAN` (AUTH_ERROR, BLOCKED, UNKNOWN, a second timeout on the same issue,
+  or the 3 relaunches/issue/day limit). Never force-push, merge PRs or commit
+  unless the user asks.
+- Start runs only via `scripts/hermes-launch.sh` (opens the herdr tab
+  `hermes-run`; refuses if a run is active or `GH_TOKEN` is unset).
+- While a run is active, re-check no sooner than every 20-30 minutes.
+- After editing `run-beads.sh` or `scripts/`, run `scripts/tests/run_tests.sh`.
+  Never edit `run-beads.sh` in place while it is running: write a new file and
+  `mv` it over (bash reads scripts incrementally).
