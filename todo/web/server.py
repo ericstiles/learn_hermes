@@ -17,6 +17,7 @@ error handling, and styling):
 import html
 import http.server
 import os
+import re
 import urllib.parse
 
 from todo import core
@@ -56,7 +57,9 @@ def render_page(items):
 
     The page also carries an "add" form (``<form method=post action=/add>``)
     with a text input named ``text`` and a submit button, so a browser can
-    create new items (see :meth:`TodoHandler.do_POST`).
+    create new items (see :meth:`TodoHandler.do_POST`). Every *not-done* item
+    additionally carries its own "done" form (``<form method=post
+    action=/done/<id>>`` with a submit button); done items show no form.
     """
     add_form = (
         "<form method=post action=/add>\n"
@@ -72,7 +75,16 @@ def render_page(items):
             box = "[x] " if item.get("done") else ""
             item_id = html.escape(str(item.get("id", "")))
             text = html.escape(str(item.get("text", "")))
-            rows.append(f"<li>{box}{item_id}: {text}</li>")
+            if item.get("done"):
+                # A completed item shows no form -- nothing left to do.
+                rows.append(f"<li>{box}{item_id}: {text}</li>")
+            else:
+                done_form = (
+                    f"<form method=post action=/done/{item_id}>\n"
+                    '  <input type=submit value="Done">\n'
+                    "</form>\n"
+                )
+                rows.append(f"<li>{box}{item_id}: {text}\n{done_form}</li>")
         body = add_form + "<ul>" + "".join(rows) + "</ul>"
     return (
         "<!DOCTYPE html>\n"
@@ -114,18 +126,53 @@ class TodoHandler(http.server.BaseHTTPRequestHandler):
 
         ``POST /add`` adds a new item from the ``text`` field and redirects to
         ``/`` (HTTP 303). Empty/blank text is rejected with 400 and adds
-        nothing. Full clean error *pages* are a later issue; for now a 303/400
-        status with a short body is enough.
+        nothing. ``POST /done/<id>`` marks item ``<id>`` complete
+        (:func:`todo.core.mark_done`) and redirects to ``/`` (303); an unknown
+        id -- one with no matching item, or a non-integer id -- is a 404 and
+        changes nothing on disk. Full clean error *pages* are a later issue;
+        for now a 303/400/404 status with a short body is enough.
         """
-        if self.path != "/add":
-            self.send_error(404, "Not Found")
+        if self.path == "/add":
+            self._handle_add()
             return
+        done_id = self._parse_done_id(self.path)
+        if done_id is not None:
+            self._handle_done(done_id)
+            return
+        self.send_error(404, "Not Found")
+
+    def _handle_add(self):
+        """Add a new item from the ``text`` field, then redirect to ``/``."""
         text = self._form_field("text")
         if text is None or not text.strip():
             self._send_simple(400, "Bad Request")
             return
         core.add_item(text.strip())
         self._redirect_to("/")
+
+    def _handle_done(self, item_id):
+        """Mark item ``item_id`` done, then redirect to ``/``.
+
+        An id with no matching item is a 404 -- nothing is written.
+        """
+        if core.mark_done(item_id) is None:
+            self._send_simple(404, "Not Found")
+            return
+        self._redirect_to("/")
+
+    # A path of the form /done/<integer id>; the captured id is the item id.
+    _DONE_RE = re.compile(r"^/done/(\d+)$")
+
+    def _parse_done_id(self, path):
+        """Return the int id from a ``/done/<id>`` path, or ``None``.
+
+        A non-integer id (e.g. ``/done/x``) yields ``None`` so the caller can
+        404 it rather than crash.
+        """
+        match = self._DONE_RE.match(path)
+        if match is None:
+            return None
+        return int(match.group(1))
 
     def _form_field(self, name):
         """Return the value of ``name`` from an x-www-form-urlencoded body.
