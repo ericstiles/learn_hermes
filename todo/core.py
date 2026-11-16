@@ -18,6 +18,21 @@ TODO_ENV = "TODO_FILE"
 DEFAULT_TODO_FILE = "todos.json"
 
 
+class CorruptDataFile(Exception):
+    """The data file exists but cannot be loaded safely.
+
+    Raised by :func:`load_todos` when the file is present but its contents are
+    not parseable JSON, not the expected array shape, or unreadable. The CLI
+    catches this and reports it as a single clean stderr line with a non-zero
+    exit -- never a traceback. A *missing* file is deliberately *not* corrupt
+    (it just means "no data yet" on a fresh run), so it is not raised here.
+    """
+
+    def __init__(self, message, path=None):
+        self.path = path
+        super().__init__(message)
+
+
 def data_file():
     """Return the Path to the data file, honoring the TODO_FILE env var."""
     override = os.environ.get(TODO_ENV)
@@ -25,26 +40,41 @@ def data_file():
 
 
 def load_todos(path=None):
-    """Load items from the JSON file. Missing/empty/corrupt -> empty list.
+    """Load items from the JSON file.
 
-    Tolerates a missing file (first run) and a stray empty file, returning []
-    so `add` and `list` both work on a fresh checkout.
+    A *missing* file or a *blank* file yields ``[]`` so that ``list`` and
+    ``add`` both work on a fresh checkout (the data simply does not exist
+    yet). A file that *exists but is unusable* -- malformed JSON, not the
+    expected array/``{"items": [...]}`` shape, or an I/O error reading it --
+    is raised as :class:`CorruptDataFile` so the caller can report it cleanly
+    instead of crashing with a traceback.
     """
     p = Path(path) if path is not None else data_file()
     if not p.exists():
         return []
     try:
         raw = p.read_text(encoding="utf-8").strip()
-    except OSError:
-        return []
+    except OSError as exc:
+        # The file exists but we cannot read it (permissions, is a directory,
+        # ...). Treat that as corruption rather than a clean empty start.
+        raise CorruptDataFile(
+            f"error: cannot read data file {p!s} ({exc.strerror or exc})", p
+        )
     if not raw:
         return []
-    data = json.loads(raw)
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise CorruptDataFile(
+            f"error: data file {p!s} is not valid JSON ({exc.msg})", p
+        )
     # Accept either a bare list of items or {"items": [...]}.
     if isinstance(data, dict) and "items" in data:
         data = data["items"]
     if not isinstance(data, list):
-        return []
+        raise CorruptDataFile(
+            f"error: data file {p!s} does not contain a JSON array of items", p
+        )
     # Normalize: coerce to the canonical item shape, drop malformed entries.
     items = []
     for entry in data:

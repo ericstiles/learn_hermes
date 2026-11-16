@@ -12,7 +12,16 @@ The data file path is read from the TODO_FILE env var (see core.TODO_ENV).
 import argparse
 import sys
 
-from .core import add_item, load_todos, mark_done, remove_item
+from .core import CorruptDataFile, add_item, load_todos, mark_done, remove_item
+
+
+def _parse_id(raw):
+    """Return ``int(raw)`` or raise ValueError for a non-integer id.
+
+    Centralizes id validation so every command that takes an id reports the
+    same one-line error instead of each re-implementing the try/except.
+    """
+    return int(raw)
 
 
 def cmd_add(args):
@@ -38,7 +47,7 @@ def cmd_list(args):
 def cmd_done(args):
     """Handle `todo done <id>` -> mark an item complete."""
     try:
-        item_id = int(args.id)
+        item_id = _parse_id(args.id)
     except ValueError:
         print(f"error: invalid id {args.id!r}", file=sys.stderr)
         return 1
@@ -53,7 +62,7 @@ def cmd_done(args):
 def cmd_rm(args):
     """Handle `todo rm <id>` -> delete an item (ids are not renumbered)."""
     try:
-        item_id = int(args.id)
+        item_id = _parse_id(args.id)
     except ValueError:
         print(f"error: invalid id {args.id!r}", file=sys.stderr)
         return 1
@@ -94,4 +103,10 @@ def main(argv=None):
     """Entry point. Returns a process exit code."""
     parser = build_parser()
     args = parser.parse_args(argv)
-    return args.func(args)
+    try:
+        return args.func(args)
+    except CorruptDataFile as exc:
+        # A corrupt/unreadable data file must never surface as a traceback.
+        # Report one clean line and exit non-zero.
+        print(str(exc), file=sys.stderr)
+        return 1
