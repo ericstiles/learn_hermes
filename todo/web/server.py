@@ -17,6 +17,7 @@ error handling, and styling):
 import html
 import http.server
 import os
+import urllib.parse
 
 from todo import core
 
@@ -52,9 +53,19 @@ def render_page(items):
     Each item becomes ``<li>ID: text</li>``; a done item is prefixed with
     ``[x]``. An empty list renders the text ``No items`` instead of a list.
     Item text is HTML-escaped so it cannot break out of the markup.
+
+    The page also carries an "add" form (``<form method=post action=/add>``)
+    with a text input named ``text`` and a submit button, so a browser can
+    create new items (see :meth:`TodoHandler.do_POST`).
     """
+    add_form = (
+        "<form method=post action=/add>\n"
+        '  <input type=text name=text>\n'
+        '  <input type=submit value="Add">\n'
+        "</form>\n"
+    )
     if not items:
-        body = "<p>No items</p>"
+        body = add_form + "<p>No items</p>"
     else:
         rows = []
         for item in items:
@@ -62,7 +73,7 @@ def render_page(items):
             item_id = html.escape(str(item.get("id", "")))
             text = html.escape(str(item.get("text", "")))
             rows.append(f"<li>{box}{item_id}: {text}</li>")
-        body = "<ul>" + "".join(rows) + "</ul>"
+        body = add_form + "<ul>" + "".join(rows) + "</ul>"
     return (
         "<!DOCTYPE html>\n"
         "<html>\n"
@@ -97,6 +108,55 @@ class TodoHandler(http.server.BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(page)))
         self.end_headers()
         self.wfile.write(page)
+
+    def do_POST(self):
+        """Handle form submissions.
+
+        ``POST /add`` adds a new item from the ``text`` field and redirects to
+        ``/`` (HTTP 303). Empty/blank text is rejected with 400 and adds
+        nothing. Full clean error *pages* are a later issue; for now a 303/400
+        status with a short body is enough.
+        """
+        if self.path != "/add":
+            self.send_error(404, "Not Found")
+            return
+        text = self._form_field("text")
+        if text is None or not text.strip():
+            self._send_simple(400, "Bad Request")
+            return
+        core.add_item(text.strip())
+        self._redirect_to("/")
+
+    def _form_field(self, name):
+        """Return the value of ``name`` from an x-www-form-urlencoded body.
+
+        Returns ``None`` when the field is absent. The body length comes from
+        the ``Content-Length`` header; a missing/zero body yields no fields.
+        """
+        length = self.headers.get("Content-Length")
+        if not length:
+            return None
+        raw = self.rfile.read(int(length))
+        parsed = urllib.parse.parse_qs(raw.decode("utf-8"))
+        values = parsed.get(name)
+        if not values:
+            return None
+        return values[0]
+
+    def _redirect_to(self, location):
+        """Send a 303 See Other redirect to ``location``."""
+        self.send_response(303)
+        self.send_header("Location", location)
+        self.end_headers()
+
+    def _send_simple(self, status, message):
+        """Send a short plain-text response body with ``status``."""
+        body = f"{status} {message}\n".encode()
+        self.send_response(status)
+        self.send_header("Content-Type", "text/plain; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
 
 
 def make_server(port, host=LOOPBACK):
