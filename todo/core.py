@@ -96,3 +96,25 @@ def mark_done(item_id, path=None):
             save_todos(items, path)
             return item
     return None
+
+
+def remove_item(item_id, path=None):
+    """Delete the item with ``item_id`` and persist.
+
+    Returns the removed item dict, or ``None`` when no item has that id.
+    Remaining ids are left unchanged -- deletion does *not* renumber, so a gap
+    is expected (e.g. removing 2 from [1,2,3] leaves [1,3]). The core contract
+    is "delete if present, else no-op"; unknown-id *error reporting* is owned
+    by the validation issue.
+    """
+    items = load_todos(path)
+    kept, removed = [], None
+    for item in items:
+        if item["id"] == item_id and removed is None:
+            removed = item  # remove only the first matching id
+        else:
+            kept.append(item)
+    if removed is None:
+        return None  # no item matched -> no-op, nothing written
+    save_todos(kept, path)
+    return removed
