@@ -64,6 +64,7 @@ def _request(host, port, method, path, body=None, headers=None):
 
 # --- criterion 1: GET / renders a /done/<id> form for not-done items -------
 
+
 def test_get_root_renders_done_form_for_not_done_item(tmp_path):
     s, t, host, port = _start_server(
         tmp_path / "todos.json",
@@ -103,6 +104,7 @@ def test_get_root_no_done_form_for_done_item(tmp_path):
 
 # --- criteria 2 & 3: POST /done/<id> marks the item done and redirects -----
 
+
 def test_post_done_marks_item_and_redirects(tmp_path):
     todo_file = tmp_path / "todos.json"
     s, t, host, port = _start_server(
@@ -131,6 +133,7 @@ def test_post_done_marks_item_and_redirects(tmp_path):
 
 # --- criterion 4: unknown id -> 404 and no file change ---------------------
 
+
 def test_post_done_unknown_id_returns_404_and_no_change(tmp_path):
     todo_file = tmp_path / "todos.json"
     s, t, host, port = _start_server(
@@ -142,7 +145,7 @@ def test_post_done_unknown_id_returns_404_and_no_change(tmp_path):
     )
     try:
         before = core.load_todos(path=str(todo_file))
-        status, headers, _body, conn = _request(host, port, "POST", "/done/99")
+        status, _headers, _body, conn = _request(host, port, "POST", "/done/99")
         conn.close()
         assert status == 404
         # No item was marked done and the stored items are unchanged.
@@ -155,7 +158,11 @@ def test_post_done_unknown_id_returns_404_and_no_change(tmp_path):
 
 
 def test_post_done_rejects_non_integer_id(tmp_path):
-    """A /done path with a non-numeric id is a 404, not a 500 or crash."""
+    """A /done path with a non-numeric id is a 400 (invalid id), not a crash.
+
+    learn_hermes-clq redefined malformed ids as 400 (previously 404); a
+    well-formed id with no matching item is still a 404.
+    """
     todo_file = tmp_path / "todos.json"
     s, t, host, port = _start_server(
         todo_file, items=[{"id": 1, "text": "alpha", "done": False}]
@@ -163,7 +170,7 @@ def test_post_done_rejects_non_integer_id(tmp_path):
     try:
         status, _headers, _body, conn = _request(host, port, "POST", "/done/x")
         conn.close()
-        assert status == 404
+        assert status == 400
         # Nothing was marked done.
         assert core.load_todos(path=str(todo_file))[0]["done"] is False
     finally:

@@ -61,6 +61,7 @@ def _request(host, port, method, path, body=None, headers=None):
 
 # --- criterion 1: GET / renders a /delete/<id> form for every item ----------
 
+
 def test_get_root_renders_delete_form_for_every_item(tmp_path):
     s, t, host, port = _start_server(
         tmp_path / "todos.json",
@@ -101,6 +102,7 @@ def test_get_root_delete_form_on_done_item(tmp_path):
 
 # --- criteria 2 & 3: POST /delete/<id> removes the item and redirects -------
 
+
 def test_post_delete_removes_item_and_redirects(tmp_path):
     todo_file = tmp_path / "todos.json"
     s, t, host, port = _start_server(
@@ -136,6 +138,7 @@ def test_post_delete_removes_item_and_redirects(tmp_path):
 
 # --- criterion 4: unknown id -> 404 and no file change ---------------------
 
+
 def test_post_delete_unknown_id_returns_404_and_no_change(tmp_path):
     todo_file = tmp_path / "todos.json"
     s, t, host, port = _start_server(
@@ -148,7 +151,7 @@ def test_post_delete_unknown_id_returns_404_and_no_change(tmp_path):
     )
     try:
         before = core.load_todos(path=str(todo_file))
-        status, headers, _body, conn = _request(host, port, "POST", "/delete/99")
+        status, _headers, _body, conn = _request(host, port, "POST", "/delete/99")
         conn.close()
         assert status == 404
         # Nothing was removed: the file is byte-for-byte unchanged.
@@ -160,7 +163,11 @@ def test_post_delete_unknown_id_returns_404_and_no_change(tmp_path):
 
 
 def test_post_delete_rejects_non_integer_id(tmp_path):
-    """A /delete path with a non-numeric id is a 404, not a 500 or crash."""
+    """A /delete path with a non-numeric id is a 400 (invalid id), not a crash.
+
+    learn_hermes-clq redefined malformed ids as 400 (previously 404); a
+    well-formed id with no matching item is still a 404.
+    """
     todo_file = tmp_path / "todos.json"
     s, t, host, port = _start_server(
         todo_file,
@@ -169,7 +176,7 @@ def test_post_delete_rejects_non_integer_id(tmp_path):
     try:
         status, _headers, _body, conn = _request(host, port, "POST", "/delete/x")
         conn.close()
-        assert status == 404
+        assert status == 400
         # Nothing was removed.
         assert core.load_todos(path=str(todo_file)) == [
             {"id": 1, "text": "alpha", "done": False}
