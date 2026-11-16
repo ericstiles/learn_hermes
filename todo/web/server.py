@@ -59,7 +59,10 @@ def render_page(items):
     with a text input named ``text`` and a submit button, so a browser can
     create new items (see :meth:`TodoHandler.do_POST`). Every *not-done* item
     additionally carries its own "done" form (``<form method=post
-    action=/done/<id>>`` with a submit button); done items show no form.
+    action=/done/<id>>`` with a submit button); done items show no "done"
+    form. *Every* item -- done or not -- carries its own "delete" form
+    (``<form method=post action=/delete/<id>>`` with a "Delete" submit
+    button), since deleting is always allowed.
     """
     add_form = (
         "<form method=post action=/add>\n"
@@ -75,16 +78,23 @@ def render_page(items):
             box = "[x] " if item.get("done") else ""
             item_id = html.escape(str(item.get("id", "")))
             text = html.escape(str(item.get("text", "")))
+            # Every item carries a "delete" form, whether done or not.
+            delete_form = (
+                f"<form method=post action=/delete/{item_id}>\n"
+                '  <input type=submit value="Delete">\n'
+                "</form>\n"
+            )
             if item.get("done"):
-                # A completed item shows no form -- nothing left to do.
-                rows.append(f"<li>{box}{item_id}: {text}</li>")
+                # A completed item has no "done" form -- nothing left to do --
+                # but it can still be deleted.
+                rows.append(f"<li>{box}{item_id}: {text}\n{delete_form}</li>")
             else:
                 done_form = (
                     f"<form method=post action=/done/{item_id}>\n"
                     '  <input type=submit value="Done">\n'
                     "</form>\n"
                 )
-                rows.append(f"<li>{box}{item_id}: {text}\n{done_form}</li>")
+                rows.append(f"<li>{box}{item_id}: {text}\n{done_form}{delete_form}</li>")
         body = add_form + "<ul>" + "".join(rows) + "</ul>"
     return (
         "<!DOCTYPE html>\n"
@@ -129,8 +139,11 @@ class TodoHandler(http.server.BaseHTTPRequestHandler):
         nothing. ``POST /done/<id>`` marks item ``<id>`` complete
         (:func:`todo.core.mark_done`) and redirects to ``/`` (303); an unknown
         id -- one with no matching item, or a non-integer id -- is a 404 and
-        changes nothing on disk. Full clean error *pages* are a later issue;
-        for now a 303/400/404 status with a short body is enough.
+        changes nothing on disk. ``POST /delete/<id>`` removes item ``<id>``
+        (:func:`todo.core.remove_item`) and redirects to ``/`` (303); an
+        unknown id is a 404 and changes nothing on disk (remaining ids are not
+        renumbered). Full clean error *pages* are a later issue; for now a
+        303/400/404 status with a short body is enough.
         """
         if self.path == "/add":
             self._handle_add()
@@ -138,6 +151,10 @@ class TodoHandler(http.server.BaseHTTPRequestHandler):
         done_id = self._parse_done_id(self.path)
         if done_id is not None:
             self._handle_done(done_id)
+            return
+        delete_id = self._parse_delete_id(self.path)
+        if delete_id is not None:
+            self._handle_delete(delete_id)
             return
         self.send_error(404, "Not Found")
 
@@ -160,6 +177,18 @@ class TodoHandler(http.server.BaseHTTPRequestHandler):
             return
         self._redirect_to("/")
 
+    def _handle_delete(self, item_id):
+        """Remove item ``item_id``, then redirect to ``/``.
+
+        An id with no matching item is a 404 -- the file is left untouched.
+        Remaining ids are not renumbered (that is :func:`core.remove_item`'s
+        contract, which we reuse rather than reimplementing).
+        """
+        if core.remove_item(item_id) is None:
+            self._send_simple(404, "Not Found")
+            return
+        self._redirect_to("/")
+
     # A path of the form /done/<integer id>; the captured id is the item id.
     _DONE_RE = re.compile(r"^/done/(\d+)$")
 
@@ -170,6 +199,20 @@ class TodoHandler(http.server.BaseHTTPRequestHandler):
         404 it rather than crash.
         """
         match = self._DONE_RE.match(path)
+        if match is None:
+            return None
+        return int(match.group(1))
+
+    # A path of the form /delete/<integer id>; the captured id is the item id.
+    _DELETE_RE = re.compile(r"^/delete/(\d+)$")
+
+    def _parse_delete_id(self, path):
+        """Return the int id from a ``/delete/<id>`` path, or ``None``.
+
+        A non-integer id (e.g. ``/delete/x``) yields ``None`` so the caller
+        can 404 it rather than crash.
+        """
+        match = self._DELETE_RE.match(path)
         if match is None:
             return None
         return int(match.group(1))
