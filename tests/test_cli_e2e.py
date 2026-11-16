@@ -59,3 +59,24 @@ def test_add_then_list_persists_two_items(tmp_path):
 
     ids = [int(m.group(1)) for m in re.finditer(r"^(\d+) \[ \] ", out, re.MULTILINE)]
     assert ids == [1, 2], ids
+
+
+def test_done_then_list_marks_item_complete(tmp_path):
+    """Mark an item done via the real CLI, then list it as '[x]'.
+
+    Acceptance criteria:
+      - marking an item complete via the real CLI entrypoint
+      - the list reflects the done state ('[x]')
+      - a temp TODO_FILE is used
+    """
+    todo_file = tmp_path / "todos.json"
+
+    add_one = run_cli(["add", "mark me done"], todo_file)
+    assert add_one.returncode == 0, add_one.stderr
+
+    done = run_cli(["done", "1"], todo_file)
+    assert done.returncode == 0, done.stderr
+
+    listing = run_cli(["list"], todo_file)
+    assert listing.returncode == 0, listing.stderr
+    assert "1 [x] mark me done" in listing.stdout, listing.stdout
