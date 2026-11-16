@@ -126,6 +126,39 @@ def test_mark_done_unknown_id_returns_none(tmp_path):
     assert core.mark_done(99, path=f) is None
 
 
+# --- core: remove ----------------------------------------------------------
+
+def test_remove_item_deletes_target_and_keeps_other_ids(tmp_path):
+    f = tmp_path / "todos.json"
+    core.add_item("first", path=f)
+    core.add_item("second", path=f)
+    core.add_item("third", path=f)
+    removed = core.remove_item(2, path=f)
+    assert removed == {"id": 2, "text": "second", "done": False}
+    # Remaining ids are unchanged (no renumbering): 1 and 3 survive.
+    loaded = core.load_todos(f)
+    assert [i["id"] for i in loaded] == [1, 3]
+    assert [i["text"] for i in loaded] == ["first", "third"]
+
+
+def test_remove_item_persists_deletion(tmp_path):
+    f = tmp_path / "todos.json"
+    core.add_item("keep", path=f)
+    core.add_item("drop", path=f)
+    core.remove_item(2, path=f)
+    loaded = core.load_todos(f)
+    assert [i["id"] for i in loaded] == [1]
+    assert [i["text"] for i in loaded] == ["keep"]
+
+
+def test_remove_item_unknown_id_returns_none(tmp_path):
+    f = tmp_path / "todos.json"
+    core.add_item("only one", path=f)
+    assert core.remove_item(99, path=f) is None
+    # Unknown-id remove is a no-op: nothing is deleted.
+    assert [i["id"] for i in core.load_todos(f)] == [1]
+
+
 # --- cli: done -------------------------------------------------------------
 
 def test_main_done_then_list_marks_done(tmp_path, monkeypatch, capsys):
@@ -148,3 +181,28 @@ def test_main_done_unknown_id_does_not_crash(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv(core.TODO_ENV, str(f))
     rc = cli.main(["done", "99"])
     assert rc != 0  # reported, but not a crash
+
+
+# --- cli: remove -----------------------------------------------------------
+
+def test_main_rm_removes_item_and_keeps_ids(tmp_path, monkeypatch, capsys):
+    f = tmp_path / "todos.json"
+    core.add_item("first", path=f)
+    core.add_item("second", path=f)
+    core.add_item("third", path=f)
+    monkeypatch.setenv(core.TODO_ENV, str(f))
+    assert cli.main(["rm", "2"]) == 0
+    out = capsys.readouterr().out
+    assert "removed 2: second" in out
+    # Remaining ids unchanged: 1 and 3, with 2 gone.
+    assert [i["id"] for i in core.load_todos(f)] == [1, 3]
+
+
+def test_main_rm_unknown_id_does_not_crash(tmp_path, monkeypatch, capsys):
+    f = tmp_path / "todos.json"
+    core.add_item("only one", path=f)
+    monkeypatch.setenv(core.TODO_ENV, str(f))
+    rc = cli.main(["rm", "99"])
+    assert rc != 0  # reported, but not a crash
+    # No-op: the item is still there.
+    assert [i["id"] for i in core.load_todos(f)] == [1]

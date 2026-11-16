@@ -80,3 +80,37 @@ def test_done_then_list_marks_item_complete(tmp_path):
     listing = run_cli(["list"], todo_file)
     assert listing.returncode == 0, listing.stderr
     assert "1 [x] mark me done" in listing.stdout, listing.stdout
+
+
+def test_rm_then_list_removes_item_and_keeps_other_ids(tmp_path):
+    """Remove an item via the real CLI; remaining ids must not change.
+
+    Acceptance criteria:
+      - removing an item via the real CLI entrypoint
+      - the remaining items keep their original ids (no renumbering)
+      - a temp TODO_FILE is used
+    """
+    todo_file = tmp_path / "todos.json"
+
+    add_one = run_cli(["add", "first"], todo_file)
+    add_two = run_cli(["add", "second"], todo_file)
+    add_three = run_cli(["add", "third"], todo_file)
+    assert add_one.returncode == 0, add_one.stderr
+    assert add_two.returncode == 0, add_two.stderr
+    assert add_three.returncode == 0, add_three.stderr
+
+    rm = run_cli(["rm", "2"], todo_file)
+    assert rm.returncode == 0, rm.stderr
+
+    listing = run_cli(["list"], todo_file)
+    assert listing.returncode == 0, listing.stderr
+    out = listing.stdout
+    # Item 2 is gone; 1 and 3 remain with their original ids (no renumbering).
+    assert "1 [ ] first" in out, out
+    assert "3 [ ] third" in out, out
+    assert "2 [" not in out, out
+
+    import re
+
+    ids = [int(m.group(1)) for m in re.finditer(r"^(\d+) \[ \] ", out, re.MULTILINE)]
+    assert ids == [1, 3], ids
