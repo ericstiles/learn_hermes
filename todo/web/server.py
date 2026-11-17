@@ -24,6 +24,23 @@ Hardening (learn_hermes-clq):
 * Every error response (400/404/405/413/415/500) is a small HTML page that
   links back to ``/``.
 
+Further hardening (learn_hermes-7p6):
+
+* A ``Content-Length`` that is not a canonical non-negative decimal integer is
+  a 400 -- a negative value (``-5``), a leading sign (``+5``), surrounding
+  whitespace, or a stray character (``5x``) is rejected *before* the body is
+  read, so it can never reach ``rfile.read`` as a bogus byte count.
+* The request path is parsed with :func:`urllib.parse.urlsplit`, so a query
+  string (``GET /?x=1``, ``POST /add?x=1``) is ignored and the route is
+  matched on the path component only.
+* Every POST is guarded against cross-origin form submission (CSRF): if an
+  ``Origin`` header is present it must be the loopback origin served by this
+  process, else 403; if it is absent but ``Sec-Fetch-Site`` is present that
+  value must be ``same-origin`` or ``none``, else 403.
+* Every request is guarded against DNS rebinding: a present ``Host`` header
+  that is not ``127.0.0.1[:port]`` or ``localhost[:port]`` is a 403.
+* The id routes use :func:`re.fullmatch` (not ``match`` with ``$``).
+
 Design goals (kept minimal on purpose -- later issues add styling and README):
 
 * A handler class (:class:`TodoHandler`) so it plugs into ``http.server``.
@@ -61,10 +78,24 @@ MAX_TEXT = 200
 _FORM_CONTENT_TYPE = "application/x-www-form-urlencoded"
 
 # A well-formed id path: 1-9 digits (captured). Anything else -- letters, a
-# sign, a decimal, or >9 digits -- fails the match and is rejected as a 400.
-# Compiled once at import; the capture group is the id we hand to core.
-_DONE_ID_RE = re.compile(r"^/done/([0-9]{1,9})$")
-_DELETE_ID_RE = re.compile(r"^/delete/([0-9]{1,9})$")
+# sign, a decimal, or >9 digits -- fails the fullmatch and is rejected as a
+# 400. The capture group is the id we hand to core. Compiled once at import;
+# anchored by fullmatch (no leading/trailing anchors) so the whole path must
+# match, as the issue requires.
+_DONE_ID_RE = re.compile(r"/done/([0-9]{1,9})")
+_DELETE_ID_RE = re.compile(r"/delete/([0-9]{1,9})")
+
+# A canonical Content-Length: only a non-negative decimal integer. A leading
+# sign, surrounding whitespace, or a stray character is rejected (a bogus byte
+# count must never reach rfile.read, which would raise an uncaught error).
+_CONTENT_LENGTH_RE = re.compile(r"[0-9]+")
+
+# Hosts/origins this loopback server is willing to serve. A request whose Host
+# or Origin points anywhere else is a 403 (DNS-rebinding / CSRF defense).
+_ALLOWED_HOSTS = ("127.0.0.1", "localhost")
+
+# Sec-Fetch-Site values that are acceptable when Origin is absent.
+_ALLOWED_SEC_FETCH_SITES = ("same-origin", "none")
 
 # Minimal inline CSS, kept as one constant so it is injected into the <head> of
 # the main page -- no external stylesheet, no CDN, no JS. It gives the page a
@@ -130,6 +161,60 @@ def resolve_port(arg, env=None):
     if override:
         return int(override)
     return DEFAULT_PORT
+
+
+def _parse_content_length(value):
+    """Return the non-negative integer ``Content-Length`` or raise ``ValueError``.
+
+    Only a canonical decimal integer is accepted: no leading sign, no
+    surrounding whitespace, no stray characters. A negative value, a ``+``
+    sign, or anything non-digit is rejected so the count can never be handed
+    to ``rfile.read`` (which would raise an uncaught error and drop the
+    connection).
+    """
+    if not isinstance(value, str) or not _CONTENT_LENGTH_RE.fullmatch(value):
+        raise ValueError(f"bad Content-Length: {value!r}")
+    return int(value)
+
+
+def _is_allowed_host(host_header, port):
+    """True when ``host_header`` names this loopback server.
+
+    A present Host must be ``127.0.0.1[:port]`` or ``localhost[:port]`` (the
+    port, when given, must match the bound port). An *absent* Host is allowed
+    -- it is a degenerate, non-browser case (the test suite's raw
+    ``skip_host=True`` requests), and rejecting it would break the missing
+    Content-Length test, which never sends a Host header.
+    """
+    if host_header is None:
+        return True
+    host = host_header.strip()
+    # Split an optional ":port"; strip IPv6 brackets if present.
+    name, sep, given_port = host.partition(":")
+    if name.startswith("["):
+        name = name[1:-1]
+    name = name.lower()
+    if name not in _ALLOWED_HOSTS:
+        return False
+    if sep:
+        return given_port == str(port)
+    return True
+
+
+def _is_allowed_origin(origin, port):
+    """True when ``origin`` is this server's loopback origin.
+
+    The scheme must be ``http`` (we serve http only), the host must be
+    ``127.0.0.1`` or ``localhost``, and the port must match the bound port.
+    """
+    parts = urllib.parse.urlsplit(origin)
+    if parts.scheme != "http":
+        return False
+    if parts.hostname not in _ALLOWED_HOSTS:
+        return False
+    if parts.port is None:
+        return False
+    return parts.port == int(port)
 
 
 def render_page(items):
@@ -241,7 +326,11 @@ class TodoHandler(http.server.BaseHTTPRequestHandler):
     # --- GET -------------------------------------------------------------
 
     def do_GET(self):
-        if self.path != "/":
+        if not self._host_ok():
+            self._send_error_page(403, "Forbidden", "Forbidden host")
+            return
+        path = urllib.parse.urlsplit(self.path).path
+        if path != "/":
             self._send_error_page(404, "Not Found", "Not Found")
             return
         try:
@@ -266,6 +355,10 @@ class TodoHandler(http.server.BaseHTTPRequestHandler):
     def do_POST(self):
         """Handle form submissions, validating each before touching disk.
 
+        A request is first rejected for a bad Host (403) and for a
+        cross-origin submission (403); the path is then matched on its
+        ``urlsplit`` path component so a query string is ignored.
+
         ``POST /add`` adds a new item from the ``text`` field and redirects to
         ``/`` (HTTP 303); its request body is validated first (see
         :meth:`_handle_add`). ``POST /done/<id>`` and ``POST /delete/<id>``
@@ -275,18 +368,25 @@ class TodoHandler(http.server.BaseHTTPRequestHandler):
         disk; a *malformed* id (anything not matching ``^[0-9]{1,9}$``) is a
         400.
         """
-        if self.path == "/add":
+        if not self._host_ok():
+            self._send_error_page(403, "Forbidden", "Forbidden host")
+            return
+        if not self._origin_ok():
+            self._send_error_page(403, "Forbidden", "Cross-origin request")
+            return
+        path = urllib.parse.urlsplit(self.path).path
+        if path == "/add":
             self._handle_add()
             return
-        if self.path.startswith("/done/"):
-            match = _DONE_ID_RE.match(self.path)
+        if path.startswith("/done/"):
+            match = _DONE_ID_RE.fullmatch(path)
             if match is None:
                 self._send_error_page(400, "Bad Request", "Invalid id")
                 return
             self._handle_done(int(match.group(1)))
             return
-        if self.path.startswith("/delete/"):
-            match = _DELETE_ID_RE.match(self.path)
+        if path.startswith("/delete/"):
+            match = _DELETE_ID_RE.fullmatch(path)
             if match is None:
                 self._send_error_page(400, "Bad Request", "Invalid id")
                 return
@@ -299,9 +399,10 @@ class TodoHandler(http.server.BaseHTTPRequestHandler):
 
         Body rules (checked in order, before touching the filesystem):
         a non-urlencoded ``Content-Type`` is 415; a missing ``Content-Length``
-        is 400; a body larger than :data:`MAX_BODY` bytes is 413 (checked
-        before reading the body); non-UTF-8 bytes are 400; and item text
-        longer than :data:`MAX_TEXT` characters (or empty) is 400.
+        is 400; a non-integer or negative ``Content-Length`` is 400; a body
+        larger than :data:`MAX_BODY` bytes is 413 (checked before reading the
+        body); non-UTF-8 bytes are 400; and item text longer than
+        :data:`MAX_TEXT` characters (or empty) is 400.
         """
         content_type = self.headers.get("Content-Type", "")
         if _FORM_CONTENT_TYPE not in content_type:
@@ -314,7 +415,7 @@ class TodoHandler(http.server.BaseHTTPRequestHandler):
             self._send_error_page(400, "Bad Request", "Missing Content-Length")
             return
         try:
-            length = int(length)
+            length = _parse_content_length(length)
         except ValueError:
             self._send_error_page(400, "Bad Request", "Bad Content-Length")
             return
@@ -406,6 +507,32 @@ class TodoHandler(http.server.BaseHTTPRequestHandler):
     do_PATCH = _method_not_allowed
     do_OPTIONS = _method_not_allowed
     do_TRACE = _method_not_allowed
+
+    # --- request guards --------------------------------------------------
+
+    def _server_port(self):
+        """The port this server is actually bound to (for origin/Host checks)."""
+        return self.server.server_address[1]
+
+    def _host_ok(self):
+        """True unless a present ``Host`` header names a non-loopback host."""
+        return _is_allowed_host(self.headers.get("Host"), self._server_port())
+
+    def _origin_ok(self):
+        """True unless the request looks like a cross-origin submission.
+
+        If ``Origin`` is present it must be this server's loopback origin.
+        Otherwise, if ``Sec-Fetch-Site`` is present it must be ``same-origin``
+        or ``none``. A request with neither header is allowed (303 on success)
+        so the existing form-submission tests keep working.
+        """
+        origin = self.headers.get("Origin")
+        if origin is not None:
+            return _is_allowed_origin(origin, self._server_port())
+        sec_fetch_site = self.headers.get("Sec-Fetch-Site")
+        if sec_fetch_site is not None:
+            return sec_fetch_site.lower() in _ALLOWED_SEC_FETCH_SITES
+        return True
 
     # --- helpers ---------------------------------------------------------
 

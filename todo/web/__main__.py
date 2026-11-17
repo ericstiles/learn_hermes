@@ -31,7 +31,10 @@ def main(argv=None):
     args = parser.parse_args(argv)
     port = resolve_port(args.port)
     server = make_server(port, LOOPBACK)
-    print(f"todo web serving on http://{LOOPBACK}:{port}")
+    # flush=True so the "serving on" line appears promptly when stdout is a
+    # pipe (e.g. a CI log or a test that waits for it) instead of being
+    # buffered until the process exits.
+    print(f"todo web serving on http://{LOOPBACK}:{port}", flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
