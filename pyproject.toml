@@ -13,7 +13,7 @@ requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-packages = ["todo"]
+packages = ["todo", "todo.web"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
