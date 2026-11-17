@@ -45,9 +45,11 @@ def load_todos(path=None):
     A *missing* file or a *blank* file yields ``[]`` so that ``list`` and
     ``add`` both work on a fresh checkout (the data simply does not exist
     yet). A file that *exists but is unusable* -- malformed JSON, not the
-    expected array/``{"items": [...]}`` shape, or an I/O error reading it --
-    is raised as :class:`CorruptDataFile` so the caller can report it cleanly
-    instead of crashing with a traceback.
+    expected array/``{"items": [...]}`` shape, an I/O error reading it, or an
+    entry that is not a well-formed item (non-object entry, non-positive-integer
+    id, non-string text, non-boolean done) -- is raised as
+    :class:`CorruptDataFile` so the caller can report it cleanly instead of
+    crashing with a traceback. Malformed entries are never silently dropped.
     """
     p = Path(path) if path is not None else data_file()
     if not p.exists():
@@ -75,16 +77,49 @@ def load_todos(path=None):
         raise CorruptDataFile(
             f"error: data file {p!s} does not contain a JSON array of items", p
         )
-    # Normalize: coerce to the canonical item shape, drop malformed entries.
+    # Validate every entry. A damaged file (a non-object entry, a non-positive-
+    # integer id, a non-string text, or a non-boolean done) is raised as
+    # :class:`CorruptDataFile` -- never silently dropped or type-coerced. The
+    # old int()/bool() coercion crashed on a non-int id and rendered done:"false"
+    # (a string) as done because bool("false") is True; strict validation fixes
+    # both. A one-line message names the file and the offending entry index.
     items = []
-    for entry in data:
+    for index, entry in enumerate(data):
         if not isinstance(entry, dict):
-            continue
+            raise CorruptDataFile(
+                f"error: data file {p!s} entry index {index} is not an object",
+                p,
+            )
+        item_id = entry.get("id")
+        # bool is a subclass of int, so exclude it explicitly: id True/False is
+        # not a valid id. id must be a real positive int (>= 1).
+        if isinstance(item_id, bool) or not isinstance(item_id, int) or item_id < 1:
+            raise CorruptDataFile(
+                f"error: data file {p!s} entry index {index} has an invalid id "
+                f"{item_id!r} (must be a positive integer)",
+                p,
+            )
+        # 'text' is optional in the JSON but, when present, must be a string.
+        # Missing 'done' defaults to False; a present 'done' must be a real bool
+        # (not the string "false"/"true", which coerce truthily).
+        if "text" in entry and not isinstance(entry["text"], str):
+            raise CorruptDataFile(
+                f"error: data file {p!s} entry index {index} has a non-string "
+                f"text {entry['text']!r}",
+                p,
+            )
+        done = entry.get("done", False)
+        if not isinstance(done, bool):
+            raise CorruptDataFile(
+                f"error: data file {p!s} entry index {index} has a non-boolean "
+                f"done {done!r}",
+                p,
+            )
         items.append(
             {
-                "id": int(entry.get("id", 0)),
-                "text": str(entry.get("text", "")),
-                "done": bool(entry.get("done", False)),
+                "id": item_id,
+                "text": entry.get("text", ""),
+                "done": done,
             }
         )
     return items

@@ -85,17 +85,116 @@ def test_missing_file_is_empty_not_corrupt(tmp_path):
     assert core.load_todos(f) == []
 
 
-def test_load_drops_non_dict_entries_in_array(tmp_path):
-    # A valid JSON array that contains non-object entries must drop the bad
-    # entries (never crash) and keep the well-formed ones.
+# --- core: corrupt entries (bad id / done / non-dict) -- issue 741 ---------
+#
+# The old load_todos silently *dropped* malformed entries and coerced types
+# with int()/bool(), which (a) crashed with a raw traceback on a non-int id,
+# (b) rendered done:"false" (a string) as done because bool("false") is True,
+# and (c) hid a damaged file by dropping its bad rows. load_todos now raises
+# CorruptDataFile with a one-line message (naming the file and the entry index)
+# on any of these, instead of crashing or silently dropping.
+#
+# NOTE (741): the previous test_load_drops_non_dict_entries_in_array asserted
+# the now-removed silent-drop behavior. It is replaced by the tests below; a
+# non-dict (or otherwise malformed) entry is corruption, not something to drop.
+
+def _corrupt_file(tmp_path, entries):
     f = tmp_path / "todos.json"
-    f.write_text(
-        json.dumps([{"id": 1, "text": "ok", "done": False}, 5, "junk", None]),
-        encoding="utf-8",
+    f.write_text(json.dumps(entries), encoding="utf-8")
+    return f
+
+
+def test_load_rejects_string_id(tmp_path):
+    # id "abc" used to raise a raw ValueError traceback; now a clean
+    # CorruptDataFile (issue 741).
+    with pytest.raises(core.CorruptDataFile):
+        core.load_todos(_corrupt_file(tmp_path, [{"id": "abc", "text": "x", "done": False}]))
+
+
+@pytest.mark.parametrize("bad_id", [None, True, 0, -1, 1.5])
+def test_load_rejects_bad_id(tmp_path, bad_id):
+    # id null/True/0/-1/1.5 are all not a positive int.
+    with pytest.raises(core.CorruptDataFile):
+        core.load_todos(_corrupt_file(tmp_path, [{"id": bad_id, "text": "x"}]))
+
+
+def test_load_rejects_bool_done(tmp_path):
+    # done:"false" (a string) used to render as done because bool("false") is
+    # True; now it is corruption.
+    with pytest.raises(core.CorruptDataFile):
+        core.load_todos(_corrupt_file(tmp_path, [{"id": 1, "text": "x", "done": "false"}]))
+
+
+def test_load_defaults_missing_done_to_false(tmp_path):
+    # A missing 'done' still defaults to False (a valid, common case).
+    loaded = core.load_todos(_corrupt_file(tmp_path, [{"id": 1, "text": "x"}]))
+    assert loaded == [{"id": 1, "text": "x", "done": False}]
+
+
+def test_load_rejects_non_dict_entry(tmp_path):
+    # A non-object entry (e.g. 5) is corruption, not a row to silently drop.
+    with pytest.raises(core.CorruptDataFile):
+        core.load_todos(_corrupt_file(tmp_path, [5]))
+
+
+def test_load_rejects_mixed_non_dict_and_dict(tmp_path):
+    # Even with one good entry, a non-dict sibling makes the whole file corrupt
+    # (no silent dropping of the bad sibling).
+    with pytest.raises(core.CorruptDataFile):
+        core.load_todos(
+            _corrupt_file(
+                tmp_path,
+                [{"id": 1, "text": "ok", "done": False}, 5, "junk", None],
+            )
+        )
+
+
+def test_load_rejects_non_string_text(tmp_path):
+    with pytest.raises(core.CorruptDataFile):
+        core.load_todos(_corrupt_file(tmp_path, [{"id": 1, "text": 42}]))
+
+
+def test_corrupt_message_names_file_and_index(tmp_path):
+    f = _corrupt_file(tmp_path, [{"id": "abc", "text": "x"}])
+    try:
+        core.load_todos(f)
+        raise AssertionError("expected CorruptDataFile")
+    except core.CorruptDataFile as exc:
+        msg = str(exc)
+        assert msg.startswith("error:")
+        assert str(f) in msg
+        assert "index 0" in msg
+        # One line, no traceback.
+        assert "\n" not in msg
+
+
+def test_load_valid_file_unaffected(tmp_path):
+    # A well-formed array (including a missing 'done' and a done:true) loads
+    # exactly as before.
+    f = _corrupt_file(
+        tmp_path,
+        [
+            {"id": 1, "text": "first", "done": False},
+            {"id": 2, "text": "second"},
+            {"id": 3, "text": "third", "done": True},
+        ],
     )
-    loaded = core.load_todos(f)
-    assert [i["id"] for i in loaded] == [1]
-    assert loaded[0]["text"] == "ok"
+    assert core.load_todos(f) == [
+        {"id": 1, "text": "first", "done": False},
+        {"id": 2, "text": "second", "done": False},
+        {"id": 3, "text": "third", "done": True},
+    ]
+
+
+def test_list_bad_id_file_errors_one_line_via_cli(tmp_path):
+    # Acceptance 5: 'python -m todo list' on a corrupt file exits 1, prints one
+    # line starting 'error:', and leaks no traceback.
+    f = _corrupt_file(tmp_path, [{"id": "abc", "text": "x", "done": False}])
+    result = _run_cli(["list"], f)
+    assert result.returncode == 1
+    _one_line(result.stderr.strip())
+    _no_traceback(result.stderr)
+    assert result.stderr.lstrip().startswith("error:")
 
 
 # --- cli: corrupt file recovers cleanly for every command -------------------
