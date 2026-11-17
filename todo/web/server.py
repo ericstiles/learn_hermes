@@ -66,6 +66,55 @@ _FORM_CONTENT_TYPE = "application/x-www-form-urlencoded"
 _DONE_ID_RE = re.compile(r"^/done/([0-9]{1,9})$")
 _DELETE_ID_RE = re.compile(r"^/delete/([0-9]{1,9})$")
 
+# Minimal inline CSS, kept as one constant so it is injected into the <head> of
+# the main page -- no external stylesheet, no CDN, no JS. It gives the page a
+# readable font stack, a centered max-width container, completed items struck
+# through, and styled form controls. It is deliberately free of any "http://" or
+# "https://" so the page references nothing external.
+_STYLE = """
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI",
+    Helvetica, Arial, sans-serif;
+  margin: 0;
+  padding: 2rem;
+  color: #1a1a1a;
+  background: #fafafa;
+}
+.container {
+  max-width: 40rem;
+  margin: 0 auto;
+}
+h1 {
+  margin-top: 0;
+}
+ul {
+  list-style: none;
+  padding: 0;
+}
+li {
+  padding: 0.5rem 0;
+  border-bottom: 1px solid #ececec;
+}
+li.done {
+  text-decoration: line-through;
+  color: #888;
+}
+form {
+  margin: 0.5rem 0;
+}
+input[type=text],
+input[type=submit] {
+  font: inherit;
+  padding: 0.25rem 0.5rem;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+}
+input[type=submit] {
+  background: #fff;
+  cursor: pointer;
+}
+"""
+
 
 def resolve_port(arg, env=None):
     """Resolve the port to bind.
@@ -123,8 +172,12 @@ def render_page(items):
             )
             if item.get("done"):
                 # A completed item has no "done" form -- nothing left to do --
-                # but it can still be deleted.
-                rows.append(f"<li>{box}{item_id}: {text}\n{delete_form}</li>")
+                # but it can still be deleted. The ``class="done"`` is what the
+                # inline CSS strikes it through.
+                rows.append(
+                    f'<li class="done">{box}{item_id}: {text}\n'
+                    f"{delete_form}</li>"
+                )
             else:
                 done_form = (
                     f"<form method=post action=/done/{item_id}>\n"
@@ -135,16 +188,20 @@ def render_page(items):
                     f"<li>{box}{item_id}: {text}\n{done_form}{delete_form}</li>"
                 )
         body = add_form + "<ul>" + "".join(rows) + "</ul>"
+    # Wrap the content in a centered, max-width container so the page reads
+    # well on a wide screen.
+    wrapped = f'<div class="container">\n{body}\n</div>\n'
     return (
         "<!DOCTYPE html>\n"
         "<html>\n"
         "<head>\n"
         '<meta charset="utf-8">\n'
         "<title>todo</title>\n"
+        f"<style>\n{_STYLE}\n</style>\n"
         "</head>\n"
         "<body>\n"
         "<h1>Todo</h1>\n"
-        f"{body}\n"
+        f"{wrapped}"
         "</body>\n"
         "</html>\n"
     )
