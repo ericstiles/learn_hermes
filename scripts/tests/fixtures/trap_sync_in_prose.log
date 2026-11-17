@@ -1,0 +1,7 @@
+Query: x
+The bd dolt push hit a non-fast-forward; I pulled and pushed cleanly. Updates were rejected earlier.
+PR #12 https://github.com/o/r/pull/12 OPEN
+
+Resume this session with:
+
+Messages:       9 (1 user, 8 tool calls)

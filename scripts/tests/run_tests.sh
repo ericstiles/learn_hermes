@@ -11,7 +11,7 @@ eq()  { [ "$2" = "$3" ] && ok "$1" || bad "$1" "$2 != $3"; }
 # --- classification (one fixture per class + false-positive traps) ---
 for pair in timeout_killed:TIMEOUT blocked:BLOCKED queue_empty:QUEUE_EMPTY model_api_error:MODEL_API_ERROR \
             beads_sync:BEADS_SYNC_ERROR auth_error:AUTH_ERROR sandbox_down:SANDBOX_DOWN ok_done:OK_DONE \
-            trap_test_404_and_aux_timeout:OK_DONE trap_sentinel_in_prose:OK_DONE; do
+            trap_test_404_and_aux_timeout:OK_DONE trap_sentinel_in_prose:OK_DONE trap_sync_in_prose:OK_DONE; do
   n=${pair%%:*}; want=${pair##*:}
   eq "classify $n" "$(hermes_classify "$FX/$n.log")" "$want"
 done

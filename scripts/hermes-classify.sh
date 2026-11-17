@@ -41,14 +41,18 @@ hermes_classify() {
   if printf '%s\n' "$tail30" | grep -qE '^NO_READY_WORK$'; then echo QUEUE_EMPTY; return 0; fi
   # A killed run never prints Hermes' session footer.
   if ! grep -q '^Resume this session with:' "$f"; then echo TIMEOUT; return 0; fi
-  if printf '%s\n' "$tail60" | grep -qiE 'non-fast-forward|Updates were rejected'; then
+  # Sync failure = git/dolt's own rejection line, not agent prose that merely
+  # mentions it (a real run recovered from one and still opened its PR).
+  if printf '%s\n' "$tail60" | grep -qE '^ *! \[rejected\].*non-fast-forward|^error: failed to push some refs|^hint: Updates were rejected'; then
     echo BEADS_SYNC_ERROR; return 0
+  fi
+  # A PR URL in a clean run means push/auth worked: success wins over any
+  # earlier narrated error text.
+  if grep -qE 'https://github\.com/[^ ]+/pull/[0-9]+' "$f" && [ "${ec:-0}" = "0" ]; then
+    echo OK_DONE; return 0
   fi
   if printf '%s\n' "$tail60" | grep -qE 'Bad credentials|could not read Username|[Aa]uthentication failed|HTTP 40[13]\b|\((401|403)\)'; then
     echo AUTH_ERROR; return 0
-  fi
-  if grep -qE 'https://github\.com/[^ ]+/pull/[0-9]+' "$f" && [ "${ec:-0}" = "0" ]; then
-    echo OK_DONE; return 0
   fi
   echo UNKNOWN
 }
